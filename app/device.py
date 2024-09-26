@@ -47,13 +47,19 @@ def check_admin(user, db):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Current user isn\'t admin!')
 
 
+def check_device_in_db(db, uid):
+    db_item = db.query(Devices).filter(Devices.uid == uid).first()
+    if db_item is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='No such device in DB!')
+    return db_item
+
 
 db_dependency = Annotated[Session, Depends(get_db)]
 
 
 @router.post("/add", status_code=status.HTTP_201_CREATED)
 async def registrate_new_device(user: user_dependency, db: db_dependency, registrate_device: DeviceRegistrationRequest):
-    await check_auth(user)
+    check_auth(user)
     db_item = db.query(Devices).filter(Devices.uid == registrate_device.uid).first()
     if db_item is not None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='This UID have been already registrated!')
@@ -71,10 +77,8 @@ async def registrate_new_device(user: user_dependency, db: db_dependency, regist
 
 @router.patch("/activate/{uid}", status_code=status.HTTP_202_ACCEPTED)
 async def activate_device(user: user_dependency, db: db_dependency, uid: str):
-    await check_auth(user)
-    db_item = db.query(Devices).filter(Devices.uid == uid).first()
-    if db_item is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='No such device in DB!')
+    check_auth(user)
+    db_item = check_device_in_db(db, uid)
     db_item.activated = True
     db_item.date_of_activation = datetime.today().strftime('%d-%m-%Y')
     db_item.user = user['username']
@@ -85,41 +89,32 @@ async def activate_device(user: user_dependency, db: db_dependency, uid: str):
 @router.get("/check/{uid}", status_code=status.HTTP_200_OK)
 async def check_device_activation(user: user_dependency, db: db_dependency, uid: str):
     check_auth(user)
-    db_item = db.query(Devices).filter(Devices.uid == uid).first()
-    if db_item is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='No such device in DB!')
+    db_item = check_device_in_db(db, uid)
     return {"Device": uid, "activation is": db_item.activated}
 
 
 @router.patch("/edit/{edited_uid}", status_code=status.HTTP_202_ACCEPTED)
-async def edit_device(user: user_dependency, db: db_dependency, edited_uid: str, edit_device: DeviceEditRequest):
+async def edit_device(user: user_dependency, db: db_dependency, edited_uid: str, editdevice: DeviceEditRequest):
     check_admin(user, db)
-    db_item = db.query(Devices).filter(Devices.uid == edited_uid).first()
-    if db_item is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='No such device in DB!')
-    db_item.type = edit_device.type
-    db_item.description = edit_device.description
+    db_item = check_device_in_db(db, edited_uid)
+    db_item.type = editdevice.type
+    db_item.description = editdevice.description
     db_item.user = user['username']
     db.commit()
     return {"Device info was updated:": edited_uid}
 
 
-@router.post("/edit/{deleted_uid}", status_code=status.HTTP_202_ACCEPTED)
-async def delete_device(user: user_dependency, db: db_dependency, deleted_uid: str):
-    check_admin(user, db)
-    db_item = db.query(Devices).filter(Devices.uid == deleted_uid).first()
-    if db_item is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,detail='No such device in DB!')
-    db.delete(db_item)
-    db.commit()
-    return {"Device was deleted": deleted_uid}
-
-
 @router.get("/info_device/{uid}", status_code=status.HTTP_200_OK)
 async def get_info_about_device(user: user_dependency, db: db_dependency, uid: str):
     check_admin(user, db)
-    db_item = db.query(Devices).filter(Devices.uid == uid).first()
-    if db_item is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,detail='No such device in DB!')
+    db_item = check_device_in_db(db, uid)
     return db_item
 
+
+@router.delete("/edit/{deleted_uid}", status_code=status.HTTP_202_ACCEPTED)
+async def delete_device(user: user_dependency, db: db_dependency, deleted_uid: str):
+    check_admin(user, db)
+    db_item = check_device_in_db(db, deleted_uid)
+    db.delete(db_item)
+    db.commit()
+    return {"Device was deleted": deleted_uid}

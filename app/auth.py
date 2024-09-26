@@ -44,18 +44,31 @@ class Token(BaseModel):
     token_type: str
 
 
+def check_admin(user, db):
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Authentication Failed')
+    db_item = db.query(Users).filter(Users.username == user['username']).first()
+    if db_item.admin is False:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Current user isn\'t admin!')
+
+
+def check_user_in_db(db, username):
+    db_item = db.query(Users).filter(Users.username == username).first()
+    if db_item is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='No such user in DB!')
+    return db_item
+
+
 async def get_current_user(token: Annotated[str, Depends(oauth2_bearer)]):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get('sub')
         user_id: int = payload.get('id')
         if username is None or user_id is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                                detail='Could not validate user!')
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user!')
         return {'username': username, 'id': user_id}
     except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail='Could not validate user!')
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user!')
 
 
 def get_db():
@@ -71,24 +84,17 @@ user_dependency = Annotated[dict, Depends(get_current_user)]
 
 
 @router.post("/token", response_model=Token)
-async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-                                 db: db_dependency):
+async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], db: db_dependency):
     user = authenticate_user(form_data.username, form_data.password, db)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Could not validate user!")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate user!")
     token = create_access_token(user.username, user.id, timedelta(ACCESS_TOKEN_EXPIRE_MINUTES))
-
     return {'access_token': token, 'token_type': 'bearer'}
 
 
 @router.post("/add_user", status_code=status.HTTP_201_CREATED)
 async def create_new_user(user: user_dependency, db: db_dependency, create_user_request: CreateUserRequest):
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Authentication Failed')
-    db_item = db.query(Users).filter(Users.username == user['username']).first()
-    if db_item.admin is False:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Current user isn\'t admin!')
+    check_admin(user, db)
     db_item = db.query(Users).filter(Users.username == create_user_request.username).first()
     if db_item is not None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='This user have been already registrated!')
@@ -106,14 +112,8 @@ async def create_new_user(user: user_dependency, db: db_dependency, create_user_
 
 @router.patch("/edit_user/{edited_username}", status_code=status.HTTP_202_ACCEPTED)
 async def edit_user(user: user_dependency, db: db_dependency, edited_username: str, edit_user_request: EditUserRequest):
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Authentication Failed')
-    db_item = db.query(Users).filter(Users.username == user['username']).first()
-    if db_item.admin is False:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Current user isn\'t admin!')
-    db_item = db.query(Users).filter(Users.username == edited_username).first()
-    if db_item is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='No such user in DB!')
+    check_admin(user, db)
+    db_item = check_user_in_db(db, edited_username)
     db_item.fullname = edit_user_request.fullname
     db_item.hashed_password = bcrypt_context.hash(edit_user_request.password)
     db_item.email = edit_user_request.email
@@ -122,21 +122,22 @@ async def edit_user(user: user_dependency, db: db_dependency, edited_username: s
     return {"User credentials were updated:": edited_username}
 
 
-@router.post("/del_user/{deleted_username}", status_code=status.HTTP_202_ACCEPTED)
+@router.get("/info_user/{username}", status_code=status.HTTP_200_OK)
+async def get_info_about_user(user: user_dependency, db: db_dependency, username: str):
+    check_admin(user, db)
+    db_item = check_user_in_db(db, username)
+    return db_item
+
+
+@router.delete("/del_user/{deleted_username}", status_code=status.HTTP_202_ACCEPTED)
 async def delete_user(user: user_dependency, db: db_dependency, deleted_username: str):
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Authentication Failed')
-    db_item = db.query(Users).filter(Users.username == user['username']).first()
-    if db_item.admin is False:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Current user isn\'t admin!')
+    check_admin(user, db)
     if deleted_username in user.values():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Current user can\'t be deleted!')
-    user = db.query(Users).filter(Users.username == deleted_username).first()
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,detail='No such user in DB!')
-    db.delete(user)
+    db_item = check_user_in_db(db, deleted_username)
+    db.delete(db_item)
     db.commit()
-    return {"User was deleted:": user.username}
+    return {"User was deleted:": db_item.username}
 
 
 def authenticate_user(username: str, password: str, db):
@@ -154,15 +155,3 @@ def create_access_token(username: str, user_id: int, expires_delta: timedelta):
     encode.update({'exp': expires})
     return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
 
-
-@router.get("/info_user/{username}", status_code=status.HTTP_200_OK)
-async def get_info_about_user(user: user_dependency, db: db_dependency, username: str):
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Authentication Failed')
-    db_item = db.query(Users).filter(Users.username == user['username']).first()
-    if db_item.admin is False:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Current user isn\'t admin!')
-    user = db.query(Users).filter(Users.username == username).first()
-    if user is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='No such user in DB!')
-    return user

@@ -21,4 +21,3 @@ app.include_router(device.router)
 
 # Create tables
 models.Base.metadata.create_all(bind=engine)
-
