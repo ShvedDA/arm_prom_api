@@ -17,7 +17,8 @@ app = FastAPI(
 
 app.include_router(auth.router)
 app.include_router(device.router)
-
+app.include_router(device.router1)
+app.include_router(device.router2)
 
 # Create tables
 models.Base.metadata.create_all(bind=engine)

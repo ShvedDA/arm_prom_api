@@ -11,7 +11,17 @@ from app.models import Devices, Users
 
 router = APIRouter(
     prefix='/device',
-    tags=['Device']
+    tags=['Device Production']
+)
+
+router1 = APIRouter(
+    prefix='/device/prod',
+    tags=['Device Firmware']
+)
+
+router2 = APIRouter(
+    prefix='/device/activation',
+    tags=['Device Activation']
 )
 
 
@@ -75,24 +85,6 @@ async def registrate_new_device(user: user_dependency, db: db_dependency, regist
     return {"New device was added:": create_device_model.uid}
 
 
-@router.patch("/activate/{uid}", status_code=status.HTTP_202_ACCEPTED)
-async def activate_device(user: user_dependency, db: db_dependency, uid: str):
-    check_auth(user)
-    db_item = check_device_in_db(db, uid)
-    db_item.activated = True
-    db_item.date_of_activation = datetime.today().strftime('%d-%m-%Y')
-    db_item.user = user['username']
-    db.commit()
-    return {"Device was activated:": uid}
-
-
-@router.get("/check/{uid}", status_code=status.HTTP_200_OK)
-async def check_device_activation(user: user_dependency, db: db_dependency, uid: str):
-    check_auth(user)
-    db_item = check_device_in_db(db, uid)
-    return {"Device": uid, "activation is": db_item.activated}
-
-
 @router.patch("/edit/{edited_uid}", status_code=status.HTTP_202_ACCEPTED)
 async def edit_device(user: user_dependency, db: db_dependency, edited_uid: str, editdevice: DeviceEditRequest):
     check_admin(user, db)
@@ -118,3 +110,41 @@ async def delete_device(user: user_dependency, db: db_dependency, deleted_uid: s
     db.delete(db_item)
     db.commit()
     return {"Device was deleted": deleted_uid}
+
+
+@router1.get("/get_boot", status_code=status.HTTP_200_OK)
+async def get_latest_version_of_bootloader(user: user_dependency, db: db_dependency):
+    return None
+
+
+@router1.get("/get_boot/{version}", status_code=status.HTTP_200_OK)
+async def get_specific_version_of_bootloader(user: user_dependency, db: db_dependency):
+    return None
+
+
+@router1.get("/get_app", status_code=status.HTTP_200_OK)
+async def get_latest_version_of_main_app(user: user_dependency, db: db_dependency):
+    return None
+
+
+@router1.get("/get_app/{version}", status_code=status.HTTP_200_OK)
+async def get_specific_version_of_main_app(user: user_dependency, db: db_dependency):
+    return None
+
+
+@router2.patch("/activate/{uid}", status_code=status.HTTP_202_ACCEPTED)
+async def activate_device(user: user_dependency, db: db_dependency, uid: str):
+    check_auth(user)
+    db_item = check_device_in_db(db, uid)
+    db_item.activated = True
+    db_item.date_of_activation = datetime.today().strftime('%d-%m-%Y')
+    db_item.user = user['username']
+    db.commit()
+    return {"Device was activated:": uid}
+
+
+@router2.get("/check/{uid}", status_code=status.HTTP_200_OK)
+async def check_device_activation(user: user_dependency, db: db_dependency, uid: str):
+    check_auth(user)
+    db_item = check_device_in_db(db, uid)
+    return {"Device": uid, "activation is": db_item.activated}
